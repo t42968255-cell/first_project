@@ -30,7 +30,7 @@ h2{font-size:26px;font-weight:600;margin:6px 0 14px}h3{font-size:18px;margin:22p
 .back{color:var(--bp);font-size:15px;cursor:pointer;display:inline-block;margin-bottom:4px}
 .panel{background:var(--card);border-radius:14px;padding:16px;border:1px solid var(--line)}
 .fields{display:grid;gap:12px}
-@media(min-width:640px){.fields{grid-template-columns:1.4fr 1fr 1fr}}
+@media(min-width:640px){.fields{grid-template-columns:1.4fr 1fr 1fr}.fields.f4{grid-template-columns:1fr 1fr}}
 label{display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--mut);font-weight:500}
 input,select{border:1.5px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff;color:var(--ink);font-size:16px;width:100%}
 input:focus,select:focus{border-color:var(--bp);outline:none}
@@ -107,8 +107,11 @@ const firebaseConfig = {
   appId: "1:950956327967:web:91f6b3677affbe75a6012a",
   measurementId: "G-QR3GGREL0Q"
 };
-const DUE_DAYS = 3;         // กำหนดคืนภายในกี่วัน
-const SH = ['A','B','C','D'];
+const DUE_DAYS = 3;         // วันที่คืนเริ่มต้นในฟอร์ม (กี่วันนับจากวันนี้)
+const MAX_DAYS = 30;        // ยืมได้นานสุดกี่วัน
+const LOC_SUGGEST = ['ห้องเก็บของ 1','ห้องเก็บของ 2','ตู้เก็บของ','โกดัง'];   // ตัวอย่างสถานที่เก็บ (พิมพ์ชื่อใหม่เองได้)
+const LOC = v => /^[A-Z]$/.test(v) ? 'ชั้น ' + v : v;   // ข้อมูลเก่าที่เก็บเป็นตัวอักษร A-E แสดงเป็น "ชั้น A"
+const locs = () => [...new Set(tools.map(t => t.shelf).filter(Boolean))].sort((a,b) => a.localeCompare(b,'th',{numeric:true}));
 
 /* ===== เริ่มต้น Firebase ===== */
 const configured = firebaseConfig.apiKey !== "YOUR_API_KEY";
@@ -128,6 +131,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const toD = t => t && t.toDate ? t.toDate() : t ? new Date(t) : null;
 const ms = t => { const d = toD(t); return d ? d.getTime() : 0; };
 const fmt = t => { const d = toD(t); return d ? d.toLocaleString('th-TH',{day:'numeric',month:'short',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-'; };
+const fmtD = t => { const d = toD(t); return d ? d.toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}) : '-'; };
+const dateStr = n => { const x = new Date(Date.now() + n*864e5); return x.getFullYear() + '-' + String(x.getMonth()+1).padStart(2,'0') + '-' + String(x.getDate()).padStart(2,'0'); };
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove('show'),3200); }
 function need(){ if(!configured){ toast('ยังไม่ได้ตั้งค่า Firebase'); return false; } return true; }
 const UNITS = ['ชิ้น','อัน','ชุด','คู่','เครื่อง','ม้วน','ตัว'];
@@ -236,10 +241,11 @@ function Home(){
 /* ===== ยืม ===== */
 function Borrow(){
   return `${Back()}<h2>ยืมอุปกรณ์</h2>
-  <div class="panel"><div class="fields">
+  <div class="panel"><div class="fields f4">
    <label>ชื่อ-นามสกุล<input id="fn" autocomplete="off" placeholder="เช่น สมชาย ใจดี"></label>
    <label>แผนก<input id="fd" autocomplete="off" placeholder="เช่น ช่างก่อสร้าง"></label>
    <label>เบอร์โทร<input id="fp" inputmode="tel" maxlength="10" placeholder="08xxxxxxxx"></label>
+   <label>วันที่คืน (ไม่เกิน ${MAX_DAYS} วัน)<input id="fr" type="date" value="${dateStr(DUE_DAYS)}" min="${dateStr(0)}" max="${dateStr(MAX_DAYS)}"></label>
   </div></div>
   <h3>เลือกอุปกรณ์</h3>
   <input id="sq" class="search" placeholder="ค้นหาชื่อหรือรหัสอุปกรณ์" oninput="q=this.value;pick()">
@@ -248,18 +254,18 @@ function Borrow(){
 function pick(){
   if (!$('#pick')) return;
   $('#tchips').innerHTML = ['all',...allTypes()].filter(k => k === 'all' || tools.some(t => TY(t) === k)).map(k => `<button class="chip ${typeF===k?'on':''}" data-t="${esc(k)}" onclick="typeF=this.dataset.t;pick()">${k==='all'?'ทุกประเภท':esc(k)}</button>`).join('');
-  $('#chips').innerHTML = ['all',...SH].map(s => `<button class="chip ${shelfF===s?'on':''}" onclick="shelfF='${s}';pick()">${s==='all'?'ทั้งหมด':'ชั้น '+s}</button>`).join('');
+  $('#chips').innerHTML = ['all',...locs()].map(s => `<button class="chip ${shelfF===s?'on':''}" data-s="${esc(s)}" onclick="shelfF=this.dataset.s;pick()">${s==='all'?'ทั้งหมด':esc(LOC(s))}</button>`).join('');
   const key = q.trim().toLowerCase();
   const list = tools.filter(t => (shelfF==='all' || t.shelf===shelfF) && (typeF === 'all' || TY(t) === typeF) && [t.name,t.code,TY(t)].join(' ').toLowerCase().includes(key));
   let html = '';
-  SH.forEach(s => {
+  locs().forEach(s => {
     const items = list.filter(t => t.shelf === s); if (!items.length) return;
-    html += `<div class="shelf">ชั้น ${s}<i></i></div><div class="grid">` + items.map(t => {
+    html += `<div class="shelf">${esc(LOC(s))}<i></i></div><div class="grid">` + items.map(t => {
       const av = t.status === 'available', on = selected.has(t.id);
-      return `<button class="tool ${on?'sel':''}" ${av?'':'disabled'} onclick="tog('${t.id}')"><small>${esc(C(t))} ชั้น ${esc(t.shelf)}</small><b>${esc(t.name)}</b><small>${esc(TY(t))}</small><small>หน่วย ${esc(U(t))}</small><em>${av?(on?'เลือกแล้ว':'ว่าง'):'ถูกยืมอยู่'}</em></button>`;
+      return `<button class="tool ${on?'sel':''}" ${av?'':'disabled'} onclick="tog('${t.id}')"><small>${esc(C(t))} ${esc(LOC(t.shelf))}</small><b>${esc(t.name)}</b><small>${esc(TY(t))}</small><small>หน่วย ${esc(U(t))}</small><em>${av?(on?'เลือกแล้ว':'ว่าง'):'ถูกยืมอยู่'}</em></button>`;
     }).join('') + `</div>`;
   });
-  $('#pick').innerHTML = html || `<p class="empty">ไม่พบอุปกรณ์ ลองเปลี่ยนคำค้นหาหรือเลือกชั้นอื่น</p>`;
+  $('#pick').innerHTML = html || `<p class="empty">ไม่พบอุปกรณ์ ลองเปลี่ยนคำค้นหาหรือเลือกสถานที่อื่น</p>`;
   const bar = $('#bar');
   bar.style.display = selected.size ? 'flex' : 'none';
   bar.innerHTML = `<span>เลือกแล้ว ${selected.size} ชิ้น</span><button class="btn" onclick="doBorrow()">ยืมอุปกรณ์</button>`;
@@ -271,7 +277,10 @@ async function doBorrow(){
   if (!n || !d) return toast('กรุณากรอกชื่อและแผนก');
   if (p.length < 9 || p.length > 10) return toast('เบอร์โทรต้องมี 9-10 หลัก');
   if (!selected.size) return toast('กรุณาเลือกอุปกรณ์อย่างน้อย 1 ชิ้น');
-  const now = new Date(), due = new Date(now.getTime() + DUE_DAYS*864e5), b = db.batch();
+  const rv = $('#fr').value; if (!rv) return toast('กรุณาเลือกวันที่คืน');
+  const now = new Date(), due = new Date(rv + 'T23:59:00'), b = db.batch();
+  if (isNaN(due) || due < now) return toast('วันที่คืนต้องไม่ใช่วันที่ผ่านมาแล้ว');
+  if (due > new Date(now.getTime() + (MAX_DAYS+1)*864e5)) return toast(`ยืมได้ไม่เกิน ${MAX_DAYS} วัน`);
   for (const id of selected) {
     const t = tools.find(x => x.id === id);
     if (!t || t.status !== 'available') { selected.delete(id); pick(); return toast('มีอุปกรณ์ถูกยืมไปแล้ว กรุณาเลือกใหม่'); }
@@ -279,7 +288,7 @@ async function doBorrow(){
     b.set(h, {toolId:id, toolName:t.name, toolCode:t.code||'', unit:U(t), shelf:t.shelf, name:n, dept:d, phone:p, borrowedAt:TS.fromDate(now), dueAt:TS.fromDate(due), returnedAt:null, status:'borrowed'});
     b.update(db.collection('tools').doc(id), {status:'borrowed', borrowerName:n, borrowerDept:d, borrowerPhone:p, borrowedAt:TS.fromDate(now), dueAt:TS.fromDate(due), historyId:h.id});
   }
-  try { const c = selected.size; await b.commit(); finish(`ยืมสำเร็จ ${c} ชิ้น`, `กรุณาคืนภายใน ${fmt(due)}`); }
+  try { const c = selected.size; await b.commit(); finish(`ยืมสำเร็จ ${c} ชิ้น`, `กรุณาคืนภายในวันที่ ${fmtD(due)}`); }
   catch(e){ toast('บันทึกไม่สำเร็จ: ' + e.message); }
 }
 let doneMsg = ['',''];
@@ -308,7 +317,7 @@ function loansView(){
   const now = Date.now();
   $('#loans').innerHTML = `<h3>${esc(loans[0].name)} ยืมอยู่ ${loans.length} ชิ้น</h3>` + loans.map(l => `
    <label class="loan"><input type="checkbox" ${selR.has(l.id)?'checked':''} onchange="togR('${l.id}')">
-   <div><b>${esc(l.toolName)}</b> ${ms(l.dueAt)<now?'<span class="tag">เกินกำหนด</span>':''}<small>${esc(l.toolCode||'-')} ชั้น ${esc(l.shelf)} กำหนดคืน ${fmt(l.dueAt)}</small></div></label>`).join('')
+   <div><b>${esc(l.toolName)}</b> ${ms(l.dueAt)<now?'<span class="tag">เกินกำหนด</span>':''}<small>${esc(l.toolCode||'-')} ${esc(LOC(l.shelf))} กำหนดคืน ${fmtD(l.dueAt)}</small></div></label>`).join('')
    + `<button class="btn" style="margin-top:14px;width:100%" onclick="doReturn()">คืนที่เลือก (${selR.size})</button>`;
 }
 function togR(id){ selR.has(id) ? selR.delete(id) : selR.add(id); loansView(); }
@@ -369,9 +378,9 @@ function Dash(){
     const p = v / T * 100; if (p <= 0) return;
     arcs += `<circle r="15.9155" cx="21" cy="21" fill="none" stroke="${c}" stroke-width="5" stroke-dasharray="${p} ${100-p}" stroke-dashoffset="${off}"/>`; off -= p;
   });
-  const bars = SH.map(h => {
+  const bars = locs().map(h => {
     const L = tools.filter(t => t.shelf === h), b = L.filter(t => t.status === 'borrowed').length, a = L.length - b, w = L.length || 1;
-    return `<div class="bar-row"><small><span>ชั้น ${h} (${L.length} รายการ)</span><span>ว่าง ${a} (${Math.round(a/w*100)}%) / ยืม ${b} (${Math.round(b/w*100)}%)</span></small><div class="track"><i style="width:${a/w*100}%;background:var(--ok)"></i><i style="width:${b/w*100}%;background:var(--acc)"></i></div></div>`;
+    return `<div class="bar-row"><small><span>${esc(LOC(h))} (${L.length} รายการ)</span><span>ว่าง ${a} (${Math.round(a/w*100)}%) / ยืม ${b} (${Math.round(b/w*100)}%)</span></small><div class="track"><i style="width:${a/w*100}%;background:var(--ok)"></i><i style="width:${b/w*100}%;background:var(--acc)"></i></div></div>`;
   }).join('');
   return `<div class="stats">
    <div class="stat"><b>${s.total}</b><span>อุปกรณ์ทั้งหมด</span></div>
@@ -382,7 +391,7 @@ function Dash(){
    <text x="21" y="22.5" font-size="8" font-weight="600" fill="#1B2430" font-family="Prompt">${s.total?Math.round(s.bor/s.total*100):0}%</text>
    <text x="21" y="27.5" font-size="3.2" fill="#5B6776" font-family="Prompt">ถูกยืม</text></svg></div>
    <div class="legend"><span><i style="background:var(--ok)"></i>ว่าง ${s.av} (${pc(s.av)}%)</span><span><i style="background:var(--acc)"></i>ยืมอยู่ ${s.ok} (${pc(s.ok)}%)</span><span><i style="background:var(--bad)"></i>เกินกำหนด ${s.over} (${pc(s.over)}%)</span></div></div>
-   <div class="panel"><b>สัดส่วนแยกตามชั้น</b><div class="bars" style="margin-top:12px">${bars}</div></div></div>${typePanel()}${topChart()}${dashList()}`;
+   <div class="panel"><b>สัดส่วนแยกตามสถานที่เก็บ</b><div class="bars" style="margin-top:12px">${bars}</div></div></div>${typePanel()}${topChart()}${dashList()}`;
 }
 function typePanel(){
   const g = {}; tools.forEach(t => { const k = TY(t); g[k] = g[k] || {a:0,b:0}; t.status === 'borrowed' ? g[k].b++ : g[k].a++; });
@@ -403,10 +412,10 @@ function dashList(){
   const F = [['all','ทั้งหมด'],['av','ว่าง'],['bor','ถูกยืม'],['over','เกินกำหนด']];
   const keep = t => dfil === 'all' || (dfil === 'bor' ? t.status === 'borrowed' : st(t) === dfil);
   const lbl = {av:'ว่าง', bor:'ยืมอยู่', over:'เกินกำหนด'};
-  const groups = SH.map(s => {
+  const groups = locs().map(s => {
     const L = tools.filter(t => t.shelf === s && keep(t)); if (!L.length) return '';
-    return `<div class="shelf">ชั้น ${s} (${L.length})<i></i></div>` + L.map(t => `<div class="row"><div><b>${esc(t.name)}</b> <span class="tag code">${esc(C(t))}</span> <span class="tag" style="background:#ECEEE8;color:var(--mut)">${esc(TY(t))}</span>
-     <small>หน่วย ${esc(U(t))}</small><small>${t.status === 'borrowed' ? `${esc(t.borrowerName)} โทร ${esc(t.borrowerPhone)} กำหนดคืน ${fmt(t.dueAt)}` : 'พร้อมให้ยืม'}</small></div>
+    return `<div class="shelf">${esc(LOC(s))} (${L.length})<i></i></div>` + L.map(t => `<div class="row"><div><b>${esc(t.name)}</b> <span class="tag code">${esc(C(t))}</span> <span class="tag" style="background:#ECEEE8;color:var(--mut)">${esc(TY(t))}</span>
+     <small>หน่วย ${esc(U(t))}</small><small>${t.status === 'borrowed' ? `${esc(t.borrowerName)} โทร ${esc(t.borrowerPhone)} กำหนดคืน ${fmtD(t.dueAt)}` : 'พร้อมให้ยืม'}</small></div>
      <span class="pill ${st(t)}">${lbl[st(t)]}</span></div>`).join('');
   }).join('');
   return `<div class="panel" style="margin-top:14px"><b>รายการอุปกรณ์</b>
@@ -419,7 +428,7 @@ function ToolsTab(){
   return `<div class="panel"><b>เพิ่มอุปกรณ์</b><div class="addf" style="margin-top:10px">
    <label>ชื่ออุปกรณ์<input id="tn" placeholder="เช่น สว่านไฟฟ้า" oninput="autoUnit()"></label>
    <label>รหัสอุปกรณ์<input id="tc" placeholder="เว้นว่าง = สร้างอัตโนมัติ"></label>
-   <label>ชั้น<select id="ts">${SH.map(s => `<option value="${s}">ชั้น ${s}</option>`).join('')}</select></label>
+   <label>สถานที่เก็บของ<input id="ts" list="locl" placeholder="เช่น ห้องเก็บของ 1" autocomplete="off"><datalist id="locl">${[...new Set([...locs(), ...LOC_SUGGEST])].map(u => `<option value="${esc(u)}">`).join('')}</datalist></label>
    <label>ประเภท (เลือกให้อัตโนมัติตามชื่อ)<input id="tt" list="tyl" value="อื่นๆ" oninput="typeManual=!!this.value.trim()"><datalist id="tyl">${allTypes().map(u => `<option value="${esc(u)}">`).join('')}</datalist></label>
    <label>หน่วย (เลือกให้อัตโนมัติตามชื่อ)<input id="tu" list="ul" value="ชิ้น" oninput="unitManual=!!this.value.trim()"><datalist id="ul">${UNITS.map(u => `<option value="${u}">`).join('')}</datalist></label>
    <label>จำนวน<input id="tq" type="number" min="1" max="50" value="1"></label>
@@ -427,24 +436,27 @@ function ToolsTab(){
 }
 function toolList(){
   const el = $('#tl'); if (!el) return;
+  if ($('#locl')) $('#locl').innerHTML = [...new Set([...locs(), ...LOC_SUGGEST])].map(u => `<option value="${esc(u)}">`).join('');
   if ($('#tyl')) $('#tyl').innerHTML = allTypes().map(u => `<option value="${esc(u)}">`).join('');
-  el.innerHTML = SH.map(s => {
+  el.innerHTML = !tools.length ? '<p class="empty">ยังไม่มีอุปกรณ์ เพิ่มจากฟอร์มด้านบนได้เลย</p>' : locs().map(s => {
     const L = tools.filter(t => t.shelf === s); 
-    return `<div class="shelf">ชั้น ${s} (${L.length})<i></i></div>` + (L.length ? L.map(t => `<div class="row"><div><b>${esc(t.name)}</b> <span class="tag code">${esc(C(t))}</span> <span class="tag" style="background:#ECEEE8;color:var(--mut)">${esc(TY(t))}</span>
-     <small>หน่วย ${esc(U(t))}</small><small>${t.status==='borrowed' ? `<span class="${ms(t.dueAt)<Date.now()?'late':''}">ยืมโดย ${esc(t.borrowerName)} กำหนดคืน ${fmt(t.dueAt)}</span>` : 'ว่าง'}</small></div>
-     <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn sm alt" onclick="editType('${t.id}')">แก้ประเภท</button><button class="btn sm alt" onclick="editUnit('${t.id}')">แก้หน่วย</button><button class="btn sm red" onclick="delTool('${t.id}')">ลบ</button></div></div>`).join('') : '<p class="empty" style="padding:8px">ยังไม่มีอุปกรณ์ในชั้นนี้</p>');
+    return `<div class="shelf">${esc(LOC(s))} (${L.length})<i></i></div>` + (L.length ? L.map(t => `<div class="row"><div><b>${esc(t.name)}</b> <span class="tag code">${esc(C(t))}</span> <span class="tag" style="background:#ECEEE8;color:var(--mut)">${esc(TY(t))}</span>
+     <small>หน่วย ${esc(U(t))}${qtySame(t)}</small><small>${t.status==='borrowed' ? `<span class="${ms(t.dueAt)<Date.now()?'late':''}">ยืมโดย ${esc(t.borrowerName)} กำหนดคืน ${fmtD(t.dueAt)}</span>` : 'ว่าง'}</small></div>
+     <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${t.status === 'borrowed' ? `<button class="btn sm" onclick="extendDue('${t.id}')">ต่อวันคืน</button>` : ''}<button class="btn sm alt" onclick="addMore('${t.id}')">เพิ่มจำนวน</button><button class="btn sm alt" onclick="editLoc('${t.id}')">แก้สถานที่</button><button class="btn sm alt" onclick="editType('${t.id}')">แก้ประเภท</button><button class="btn sm alt" onclick="editUnit('${t.id}')">แก้หน่วย</button><button class="btn sm red" onclick="delTool('${t.id}')">ลบ</button></div></div>`).join('') : '<p class="empty" style="padding:8px">ยังไม่มีอุปกรณ์ในสถานที่นี้</p>');
   }).join('');
 }
 async function addTool(){
   if (!need()) return;
-  const n = $('#tn').value.trim(), s = $('#ts').value, u = $('#tu').value.trim() || guessUnit(n), ty = $('#tt').value.trim() || guessType(n), cin = $('#tc').value.trim().toUpperCase();
+  const n = $('#tn').value.trim(), s = $('#ts').value.trim(), u = $('#tu').value.trim() || guessUnit(n), ty = $('#tt').value.trim() || guessType(n), cin = $('#tc').value.trim().toUpperCase();
   const c = Math.min(50, Math.max(1, parseInt($('#tq').value) || 1));
   if (!n) return toast('กรุณาใส่ชื่ออุปกรณ์');
+  if (!s) return toast('กรุณาใส่สถานที่เก็บของ');
+  const pf = /^[A-Z]$/.test(s) ? s : 'EQ';
   let start = 0; const used = new Set(tools.map(t => t.code));
-  tools.forEach(t => { const m = new RegExp('^' + s + '-(\\d+)$').exec(t.code || ''); if (m) start = Math.max(start, +m[1]); });
+  tools.forEach(t => { const m = new RegExp('^' + pf + '-(\\d+)$').exec(t.code || ''); if (m) start = Math.max(start, +m[1]); });
   const b = db.batch();
   for (let i = 1; i <= c; i++) {
-    const code = cin ? (c > 1 ? `${cin}-${i}` : cin) : `${s}-${String(start + i).padStart(3,'0')}`;
+    const code = cin ? (c > 1 ? `${cin}-${i}` : cin) : `${pf}-${String(start + i).padStart(3,'0')}`;
     if (used.has(code)) return toast(`รหัส ${code} ซ้ำกับที่มีอยู่แล้ว`);
     b.set(db.collection('tools').doc(), {name: c > 1 ? `${n} ${i}` : n, code, unit:u, type:ty, shelf:s, status:'available', createdAt:FV.serverTimestamp()});
   }
@@ -467,6 +479,38 @@ async function editUnit(id){
   const v = prompt('หน่วยของ "' + t.name + '"', U(t)); if (v === null || !v.trim()) return;
   try { await db.collection('tools').doc(id).update({unit: v.trim()}); toast('แก้หน่วยแล้ว'); } catch(e){ toast('แก้ไม่สำเร็จ: ' + e.message); }
 }
+const qtySame = t => { const n = tools.filter(x => x.name === t.name && x.shelf === t.shelf).length; return n > 1 ? ` จำนวนรวม ${n}` : ''; };
+async function addMore(id){
+  const t = tools.find(x => x.id === id); if (!t || !need()) return;
+  const v = prompt(`เพิ่มจำนวน "${t.name}" อีกกี่${U(t)}? (1-50)`, '1'); if (v === null) return;
+  const c = parseInt(v); if (!(c >= 1 && c <= 50)) return toast('กรุณาใส่จำนวน 1-50');
+  const m = /^(.*?)(\d+)$/.exec(t.code || ''), prefix = m ? m[1] : (/^[A-Z]$/.test(t.shelf) ? t.shelf : 'EQ') + '-', width = m ? m[2].length : 3;
+  let max = 0; tools.forEach(x => { const k = /^(.*?)(\d+)$/.exec(x.code || ''); if (k && k[1] === prefix) max = Math.max(max, +k[2]); });
+  const b = db.batch();
+  for (let i = 1; i <= c; i++) b.set(db.collection('tools').doc(), {name:t.name, code: prefix + String(max + i).padStart(width,'0'), unit:U(t), type:TY(t), shelf:t.shelf, status:'available', createdAt:FV.serverTimestamp()});
+  try { await b.commit(); toast(`เพิ่ม ${t.name} อีก ${c} ${U(t)} แล้ว`); } catch(e){ toast('เพิ่มไม่สำเร็จ: ' + e.message); }
+}
+async function extendDue(id){
+  const t = tools.find(x => x.id === id); if (!t || t.status !== 'borrowed' || !need()) return;
+  const v = prompt(`ต่อวันคืนของ "${t.name}" (ผู้ยืม ${t.borrowerName})\nครบกำหนดเดิม ${fmtD(t.dueAt)}\nต่อเพิ่มกี่วัน?`, '3'); if (v === null) return;
+  const n = parseInt(v); if (!(n >= 1 && n <= MAX_DAYS)) return toast(`กรุณาใส่จำนวนวัน 1-${MAX_DAYS}`);
+  const d = new Date(Math.max(ms(t.dueAt), Date.now()) + n*864e5); d.setHours(23,59,0,0);
+  const nd = TS.fromDate(d), b = db.batch();
+  b.update(db.collection('tools').doc(id), {dueAt: nd});
+  if (t.historyId) b.update(db.collection('history').doc(t.historyId), {dueAt: nd});
+  try { await b.commit(); toast('ต่อวันคืนเป็น ' + fmtD(d) + ' แล้ว'); } catch(e){ toast('ต่อวันคืนไม่สำเร็จ: ' + e.message); }
+}
+async function editLoc(id){
+  const t = tools.find(x => x.id === id); if (!t || !need()) return;
+  const v = prompt(`สถานที่เก็บของ "${t.name}"\nเช่น ${LOC_SUGGEST.slice(0,3).join(', ')}`, LOC(t.shelf)); if (v === null || !v.trim()) return;
+  const nv = v.trim(), same = tools.filter(x => x.shelf === t.shelf);
+  let L = [t];
+  if (same.length > 1 && confirm(`เปลี่ยนทุกรายการที่อยู่ใน "${LOC(t.shelf)}" (${same.length} รายการ) เป็น "${nv}" ด้วยไหม?\nกด ยกเลิก = เปลี่ยนเฉพาะรายการนี้`)) L = same;
+  try {
+    for (let i = 0; i < L.length; i += 400) { const b = db.batch(); L.slice(i, i + 400).forEach(x => b.update(db.collection('tools').doc(x.id), {shelf: nv})); await b.commit(); }
+    toast(`เปลี่ยนสถานที่เก็บแล้ว ${L.length} รายการ`);
+  } catch(e){ toast('เปลี่ยนไม่สำเร็จ: ' + e.message); }
+}
 async function editType(id){
   const t = tools.find(x => x.id === id); if (!t || !need()) return;
   const v = prompt('ประเภทของ "' + t.name + '"\nเช่น ' + TYPES.slice(0,5).join(', '), TY(t)); if (v === null || !v.trim()) return;
@@ -484,9 +528,9 @@ function histList(){
   const el = $('#hist'); if (!el) return;
   const k = hq.trim().toLowerCase();
   const L = history.filter(h => !k || [h.name,h.phone,h.toolName,h.toolCode,h.dept].join(' ').toLowerCase().includes(k));
-  el.innerHTML = L.length ? `<div class="tbl"><table><tr><th>อุปกรณ์</th><th>ผู้ยืม</th><th>เบอร์โทร</th><th>ยืมเมื่อ</th><th>คืนเมื่อ</th><th>สถานะ</th></tr>` +
+  el.innerHTML = L.length ? `<div class="tbl"><table><tr><th>อุปกรณ์</th><th>ผู้ยืม</th><th>เบอร์โทร</th><th>ยืมเมื่อ</th><th>กำหนดคืน</th><th>คืนเมื่อ</th><th>สถานะ</th></tr>` +
    L.map(h => { const late = h.status==='borrowed' && ms(h.dueAt) < Date.now();
-    return `<tr><td>${esc(h.toolName)}<br><small>${esc(h.toolCode||'-')} ชั้น ${esc(h.shelf)}</small></td><td>${esc(h.name)}<br><small>${esc(h.dept)}</small></td><td>${esc(h.phone)}</td><td>${fmt(h.borrowedAt)}</td><td>${fmt(h.returnedAt)}</td>
+    return `<tr><td>${esc(h.toolName)}<br><small>${esc(h.toolCode||'-')} ${esc(LOC(h.shelf))}</small></td><td>${esc(h.name)}<br><small>${esc(h.dept)}</small></td><td>${esc(h.phone)}</td><td>${fmt(h.borrowedAt)}</td><td>${fmtD(h.dueAt)}</td><td>${fmt(h.returnedAt)}</td>
     <td>${h.status==='returned'?'<span class="ok">คืนแล้ว</span>':late?'<span class="late">เกินกำหนด</span>':'ยืมอยู่'}</td></tr>`; }).join('') + `</table></div>`
    : `<p class="empty">ไม่พบประวัติ</p>`;
 }
@@ -495,9 +539,9 @@ function histList(){
 function Over(){
   const now = Date.now(), L = tools.filter(t => t.status==='borrowed' && ms(t.dueAt) < now).sort((a,b) => ms(a.dueAt) - ms(b.dueAt));
   if (!L.length) return `<p class="empty">ไม่มีรายการเกินกำหนด</p>`;
-  return `<div class="tbl"><table><tr><th>อุปกรณ์</th><th>ผู้ยืม</th><th>เบอร์โทร</th><th>กำหนดคืน</th><th>เกิน</th></tr>` +
-   L.map(t => `<tr><td>${esc(t.name)}<br><small>${esc(C(t))} ชั้น ${esc(t.shelf)}</small></td><td>${esc(t.borrowerName)}<br><small>${esc(t.borrowerDept)}</small></td>
-   <td><a href="tel:${esc(t.borrowerPhone)}">${esc(t.borrowerPhone)}</a></td><td>${fmt(t.dueAt)}</td><td class="late">${Math.ceil((now - ms(t.dueAt))/864e5)} วัน</td></tr>`).join('') + `</table></div>`;
+  return `<div class="tbl"><table><tr><th>อุปกรณ์</th><th>ผู้ยืม</th><th>เบอร์โทร</th><th>กำหนดคืน</th><th>เกิน</th><th>จัดการ</th></tr>` +
+   L.map(t => `<tr><td>${esc(t.name)}<br><small>${esc(C(t))} ${esc(LOC(t.shelf))}</small></td><td>${esc(t.borrowerName)}<br><small>${esc(t.borrowerDept)}</small></td>
+   <td><a href="tel:${esc(t.borrowerPhone)}">${esc(t.borrowerPhone)}</a></td><td>${fmtD(t.dueAt)}</td><td class="late">${Math.ceil((now - ms(t.dueAt))/864e5)} วัน</td><td><button class="btn sm" onclick="extendDue('${t.id}')">ต่อวันคืน</button></td></tr>`).join('') + `</table></div>`;
 }
 
 render();
